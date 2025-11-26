@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Avatar GLTF Animation Viewer</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 12px;
+      background: #f2f2f7;
+      color: #222;
+    }
+    #canvas-wrap {
+      width: 640px;
+      height: 640px;
+      background: #ddd;
+      display: inline-block;
+      vertical-align: top;
+    }
+    #controls {
+      display: inline-block;
+      vertical-align: top;
+      margin-left: 16px;
+      width: 300px;
+    }
+    label { display: block; margin-top: 10px; font-weight: 600; }
+    select, button, input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 6px;
+      box-sizing: border-box;
+    }
+    #log {
+      background: white;
+      border: 1px solid #ccc;
+      margin-top: 12px;
+      padding: 8px;
+      height: 200px;
+      overflow-y: auto;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Avatar Animation Tester</h2>
+
+  <div id="canvas-wrap"></div>
+
+  <div id="controls">
+    <label>Model URL</label>
+  <input id="modelUrl" type="text" value="/avatar/avatar.gltf" />
+  <label>Load local .gltf/.glb</label>
+  <input id="fileInput" type="file" accept=".gltf,.glb" />
+
+    <label>Available Animations</label>
+    <select id="clipSelect" size="8"></select>
+
+    <button id="playBtn">Play Selected</button>
+    <button id="stopBtn">Stop</button>
+
+    <label><input id="loopChk" type="checkbox" /> Loop</label>
+
+    <label>Playback Speed</label>
+    <input id="speed" type="range" min="0.25" max="2.0" step="0.05" value="1.0" />
+
+    <div id="log"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+  import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+  import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+  let scene, camera, renderer, mixer, model, controls;
+    const logDiv = document.getElementById('log');
+    const clipSelect = document.getElementById('clipSelect');
+    const loopChk = document.getElementById('loopChk');
+    const speedSlider = document.getElementById('speed');
+
+    function log(...args) {
+      logDiv.innerHTML += args.join(' ') + "<br>";
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function setupRenderer() {
+      const wrap = document.getElementById('canvas-wrap');
+
+      wrap.innerHTML = "";
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(640, 640);
+      wrap.appendChild(renderer.domElement);
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(0, 1.6, 2.5);
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      scene.add(hemi);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(0.5, 1.0, 0.5);
+      scene.add(dir);
+    }
+
+    async function loadModel(url) {
+      try {
+        setupRenderer();
+
+        // Clean up previous model if any
+        if (model) {
+          try { scene.remove(model); } catch (e) {}
+          model = null;
+        }
+
+        const loader = new GLTFLoader();
+
+        // Detect .glb vs .gltf by extension
+        const isGLB = url.toLowerCase().endsWith('.glb');
+
+        // If loading a .gltf file from a blob URL, external resources may not be available
+        if (url.startsWith('blob:') && !isGLB) {
+          log('Warning: loading a .gltf via a local file URL may fail if external resources are not available. Prefer .glb or serve the folder via HTTP.');
+        }
+
+        const gltf = await loader.loadAsync(url);
+
+        model = gltf.scene;
+        scene.add(model);
+
+  mixer = new THREE.AnimationMixer(model);
+
+  // OrbitControls for rotate/pan/zoom
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1, 0);
+  controls.update();
+
+        // Populate animation list
+        const animations = gltf.animations;
+        clipSelect.innerHTML = "";
+
+        animations.forEach((clip, index) => {
+          const opt = document.createElement('option');
+          opt.value = index;
+          opt.text = `${clip.name} (${clip.duration.toFixed(2)}s)`;
+          clipSelect.appendChild(opt);
+        });
+
+        window._animations = animations;
+
+        log("Loaded model:", url);
+        log("Animations:", animations.length);
+
+      } catch (err) {
+        console.error(err);
+        log("Error:", err.message);
+      }
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta() * parseFloat(speedSlider.value);
+      if (mixer) mixer.update(dt);
+      if (controls) controls.update();
+      renderer.render(scene, camera);
+    }
+
+    const clock = new THREE.Clock();
+
+    document.getElementById('playBtn').onclick = () => {
+      if (!window._animations) return;
+
+      const idx = parseInt(clipSelect.value);
+      if (isNaN(idx)) return log("Select an animation first.");
+
+      const clip = window._animations[idx];
+      mixer.stopAllAction();
+      const action = mixer.clipAction(clip);
+
+      action.reset();
+  action.setLoop(loopChk.checked ? THREE.LoopRepeat : THREE.LoopOnce, loopChk.checked ? Infinity : 1);
+      action.clampWhenFinished = true;
+      action.play();
+
+      log("Playing:", clip.name);
+    };
+
+    document.getElementById('stopBtn').onclick = () => {
+      if (mixer) mixer.stopAllAction();
+      log("Stopped");
+    };
+
+    document.getElementById('modelUrl').onchange = (e) => {
+      loadModel(e.target.value);
+    };
+
+    document.getElementById('fileInput').onchange = (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      document.getElementById('modelUrl').value = url;
+      loadModel(url);
+      // Note: if the file is a .gltf that references external resources, those
+      // resources won't be accessible via a blob URL. Use a local HTTP server
+      // or convert to .glb for self-contained binary assets.
+    };
+
+  // Load the URL in the input by default
+  loadModel(document.getElementById('modelUrl').value);
+    animate();
+  </script>
+</body>
+</html>

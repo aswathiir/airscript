@@ -1,0 +1,38 @@
+type User @table {
+  username: String!
+  createdAt: Timestamp!
+  email: String
+  lastLogin: Timestamp
+}
+
+type Session @table {
+  user: User!
+  startTime: Timestamp!
+  canvasData: String!
+  endTime: Timestamp
+  textLanguage: String
+  notes: String
+}
+
+type RecognizedText @table {
+  session: Session!
+  textContent: String!
+  recognitionTime: Timestamp!
+  confidenceScore: Float
+}
+
+type ISLTranslation @table {
+  recognizedText: RecognizedText!
+  animationUrl: String!
+  translationTime: Timestamp!
+  avatarModelUsed: String
+}
+
+type SavedAnimation @table {
+  user: User!
+  islTranslation: ISLTranslation!
+  name: String!
+  savedAt: Timestamp!
+  description: String
+  isPublic: Boolean
+}
